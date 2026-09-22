@@ -1,12 +1,12 @@
 LOCAL_PATH := $(call my-dir)
 MAIN_LOCAL_PATH := $(call my-dir)
 
-# ============================================================================#
+# ============================================================================
 include $(CLEAR_VARS)
 LOCAL_MODULE    := libdobby
 LOCAL_SRC_FILES := Dobby/$(TARGET_ARCH_ABI)/libdobby.a
 include $(PREBUILT_STATIC_LIBRARY)
-# ============================================================================#
+# ============================================================================
 
 include $(CLEAR_VARS)
 
@@ -26,19 +26,19 @@ LOCAL_C_INCLUDES       += $(LOCAL_PATH)/Dobby
 LOCAL_C_INCLUDES       += $(LOCAL_PATH)/imgui
 LOCAL_C_INCLUDES       += $(LOCAL_PATH)/KittyMemory
 LOCAL_C_INCLUDES       += $(LOCAL_PATH)/Unity
+LOCAL_C_INCLUDES       += $(LOCAL_PATH)/CROSS/IL2CppSDKGenerator
 LOCAL_C_INCLUDES       += $(LOCAL_PATH)/include/And64InlineHook
 LOCAL_C_INCLUDES       += $(LOCAL_PATH)/include/Substrate
 
 FILE_LIST               := $(wildcard $(LOCAL_PATH)/imgui/*.c*)
-FILE_LIST               += $(wildcard $(LOCAL_PATH)/xdl/*.c*)
-FILE_LIST               += $(wildcard $(LOCAL_PATH)/KittyMemory/*.c*)
+FILE_LIST              += $(wildcard $(LOCAL_PATH)/xdl/*.c*)
+FILE_LIST              += $(wildcard $(LOCAL_PATH)/KittyMemory/*.c*)
 FILE_LIST              += $(wildcard $(LOCAL_PATH)/CROSS/IL2CppSDKGenerator/*.c*)
 FILE_LIST              += $(wildcard $(LOCAL_PATH)/menu/*.c*)
 FILE_LIST              += $(wildcard $(LOCAL_PATH)/menu/*.cpp)
 FILE_LIST              += $(wildcard $(LOCAL_PATH)/*.c*)
 
 LOCAL_SRC_FILES        := $(FILE_LIST:$(LOCAL_PATH)/%=%)
-
 
 ifeq ($(TARGET_ARCH_ABI), arm64-v8a)
     LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/And64InlineHook
@@ -50,12 +50,8 @@ else ifeq ($(TARGET_ARCH_ABI), armeabi-v7a)
     LOCAL_SRC_FILES += $(HOOK_SRC:$(LOCAL_PATH)/%=%)
 endif
 
-
-
-
 LOCAL_STATIC_LIBRARIES := libdobby
 LOCAL_CPP_FEATURES     := exceptions
 
 include $(BUILD_SHARED_LIBRARY)
 # ============================================================================
-
