@@ -13,6 +13,7 @@
 //CREDIT CROSS MODS
 //CREDIT CROSS MODS
 #include <android/log.h>
+#include <android/input.h>
 #include <unistd.h>
 #include <thread>
 #include <limits>
@@ -249,6 +250,30 @@ void *getRealAddr(ulong offset) {
 
 bool showSpeedWidget = false;
 
+using AInputQueueGetEventFn = int32_t (*)(AInputQueue*, AInputEvent**);
+inline AInputQueueGetEventFn orig_AInputQueue_getEvent = nullptr;
+
+inline int32_t hook_AInputQueue_getEvent(AInputQueue* queue, AInputEvent** outEvent) {
+    int32_t result = orig_AInputQueue_getEvent(queue, outEvent);
+    if (result >= 0 && outEvent && *outEvent && g_IsSetup) {
+        ImGui_ImplAndroid_HandleInputEvent(*outEvent);
+    }
+    return result;
+}
+
+inline void StartInputHook() {
+    void* target = DobbySymbolResolver("libandroid.so", "AInputQueue_getEvent");
+    if (!target) target = DobbySymbolResolver("/system/lib64/libandroid.so", "AInputQueue_getEvent");
+    if (!target) target = DobbySymbolResolver("/system/lib/libandroid.so", "AInputQueue_getEvent");
+    if (target) {
+        DobbyHook(target, (void*)hook_AInputQueue_getEvent,
+                  (void**)&orig_AInputQueue_getEvent);
+        LOGD("Android input hook installed");
+    } else {
+        LOGD("Android input hook target not found");
+    }
+}
+
 inline EGLBoolean (*old_eglSwapBuffers)(EGLDisplay dpy, EGLSurface surface);
 
 inline EGLBoolean hook_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
@@ -259,6 +284,7 @@ inline EGLBoolean hook_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
         prevWidth = g_GlWidth;
         prevHeight = g_GlHeight;
         SetupImgui();
+        ApplyProjectTheme();
         g_IsSetup = true;
     }
 
@@ -311,6 +337,7 @@ void hack_thread() {
     void* m5 = (void*)Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE("COW.GamePlay"), OBFUSCATE("UGCLevelPointLight"), OBFUSCATE("get_Range"), 0);
     if(m5) DobbyHook(m5, (void*)hook_get_Range, (void**)&orig_get_Range);
 
+    StartInputHook();
     StartGUI();
 }
 
