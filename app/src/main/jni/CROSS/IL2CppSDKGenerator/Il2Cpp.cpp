@@ -2,7 +2,7 @@
 #include <map>
 #include <jni.h>
 #include <unistd.h>
-#include "Il2cpp.h"
+#include "Il2Cpp.h"
 #include "xdl.h"
 
 #define g_LogTag "AnekoCheat"
@@ -10,7 +10,6 @@
 typedef unsigned short UTF16;
 typedef wchar_t UTF32;
 typedef char UTF8;
-
 
 namespace {
 	const void *(*il2cpp_assembly_get_image)(const void *assembly);
@@ -58,24 +57,19 @@ const char* utf16_to_utf8(const UTF16* source, size_t len) {
 
 const wchar_t* utf16_to_utf32(const UTF16* source, size_t len) {
 	auto output = new UTF32[len + 1];
-
     for (int i = 0; i < len; i++) {
         const UTF16 uc = source[i];
-        if (!is_surrogate(uc)) {
-            output[i] = uc;
-        }
+        if (!is_surrogate(uc)) output[i] = uc;
         else {
             if (is_high_surrogate(uc) && is_low_surrogate(source[i]))
                 output[i] = surrogate_to_utf32(uc, source[i]);
-            else
-                output[i] = L'?';
+            else output[i] = L'?';
         }
     }
-
     output[len] = L'\0';
     return output;
 }
-// =========================================================================== //
+
 const char* Il2CppString::CString() {
     return utf16_to_utf8(&this->start_char, this->length);
 }
@@ -98,206 +92,111 @@ void *Il2CppGetImageByName(const char *image) {
 	for(int i = 0; i < size; ++i) {
 		void *img = (void *)il2cpp_assembly_get_image(assemblies[i]);
 		const char *img_name = il2cpp_image_get_name(img);
-		if (strcmp(img_name, image) == 0) {
-			return img;
-		}
+		if (strcmp(img_name, image) == 0) return img;
 	}
 	return 0;
 }
 
 void *Il2CppGetClassType(const char *image, const char *namespaze, const char *clazz) {
 	static std::map<std::string, void *> cache;
-	std::string s = image;
-	s += namespaze;
-	s += clazz;
-	if (cache.count(s) > 0)
-		return cache[s];
+	std::string s = image; s += namespaze; s += clazz;
+	if (cache.count(s) > 0) return cache[s];
 	void *img = Il2CppGetImageByName(image);
-	if (!img) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find image %s!", image);
-		return 0;
-	}
+	if (!img) { __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find image %s!", image); return 0; }
 	void *klass = il2cpp_class_from_name(img, namespaze, clazz);
-	if (!klass) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find class %s!", clazz);
-		return 0;
-	}
+	if (!klass) { __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find class %s!", clazz); return 0; }
 	cache[s] = klass;
 	return klass;
 }
 
 void *Il2CppCreateClassInstance(const char *image, const char *namespaze, const char *clazz) {
 	void *img = Il2CppGetImageByName(image);
-	if (!img) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find image %s!", image);
-		return 0;
-	}
+	if (!img) return 0;
 	void *klass = Il2CppGetClassType(image, namespaze, clazz);
-	if (!klass) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find class %s!", clazz);
-		return 0;
-	}
-	void *obj = il2cpp_object_new(klass);
-	if (!obj) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't create object %s!", clazz);
-		return 0;
-	}
-	return obj;
+	if (!klass) return 0;
+	return il2cpp_object_new(klass);
 }
 
 void* Il2CppCreateArray(const char *image, const char *namespaze, const char *clazz, size_t length) {
 	void *img = Il2CppGetImageByName(image);
-	if (!img) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find image %s!", image);
-		return 0;
-	}
+	if (!img) return 0;
 	void *klass = Il2CppGetClassType(image, namespaze, clazz);
-	if (!klass) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find class %s!", clazz);
-		return 0;
-	}
+	if (!klass) return 0;
 	return il2cpp_array_new(klass, length);
 }
 
 void Il2CppGetStaticFieldValue(const char *image, const char *namespaze, const char *clazz, const char *name, void *output) {
 	void *img = Il2CppGetImageByName(image);
-	if (!img) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find image %s!", image);
-		return;
-	}
+	if (!img) return;
 	void *klass = Il2CppGetClassType(image, namespaze, clazz);
-	if (!klass) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find field %s!",name);
-		return;
-	}
+	if (!klass) return;
     void *field = il2cpp_class_get_field_from_name(klass, name);
-	if (!field) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find field %s in class %s!", name, clazz);
-		return;
-	}
+	if (!field) return;
 	il2cpp_field_static_get_value(field, output);
 }
 
 void Il2CppSetStaticFieldValue(const char *image, const char *namespaze, const char *clazz, const char *name, void* value) {
 	void *img = Il2CppGetImageByName(image);
-	if (!img) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find image %s!", image);
-		return;
-	}
+	if (!img) return;
 	void *klass = Il2CppGetClassType(image, namespaze, clazz);
-	if (!klass) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find field %s!", name);
-		return;
-	}
+	if (!klass) return;
 	void *field = il2cpp_class_get_field_from_name(klass, name);
-	if (!field) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find field %s in class %s!", name, clazz);
-		return;
-	}
+	if (!field) return;
 	il2cpp_field_static_set_value(field, value);
 }
 
 void *Il2CppGetMethodOffset(const char *image, const char *namespaze, const char *clazz, const char *name, int argsCount) {
 	void *img = Il2CppGetImageByName(image);
-	if (!img) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find image %s!", image);
-		return 0;
-	}
+	if (!img) return 0;
 	void *klass = Il2CppGetClassType(image, namespaze, clazz);
-	if (!klass) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find method %s!", name);
-		return 0;
-	}
+	if (!klass) return 0;
 	void **method = (void**)il2cpp_class_get_method_from_name(klass, name, argsCount);
-	if (!method) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find method %s in class %s!", name, clazz);
-		return 0;
-	}
-	__android_log_print(ANDROID_LOG_DEBUG, g_LogTag, "%s - [%s] %s::%s: %p", image, namespaze, clazz, name, *method);
+	if (!method) return 0;
 	return *method;
 }
 
 void *Il2CppGetMethodOffset(const char *image, const char *namespaze, const char *clazz, const char *name, char** args, int argsCount) {
 	void *img = Il2CppGetImageByName(image);
-	if (!img) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find image %s!", image);
-		return 0;
-	}
+	if (!img) return 0;
 	void *klass = Il2CppGetClassType(image, namespaze, clazz);
-	if (!klass) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find class %s for method %s!", clazz, name);
-		return 0;
-	}
+	if (!klass) return 0;
 	void *iter = 0;
 	int score = 0;
 	void **method = (void**) il2cpp_class_get_methods(klass, &iter);
-	
 	while(method) {
 		const char *fname = il2cpp_method_get_name(method);
 		if (strcmp(fname, name) == 0) {
 			for (int i = 0; i < argsCount; i++) {
 				void *arg = il2cpp_method_get_param(method, i);
-				if (arg) {
-					const char *tname = il2cpp_type_get_name(arg);
-					if (strcmp(tname, args[i]) == 0) {
-						score++;
-					} else {
-						__android_log_print(ANDROID_LOG_INFO, g_LogTag, "Argument at index %d didn't matched requested argument!\n\tRequested: %s\n\tActual: %s\nnSkipping function...", i, args[i], tname);
-						score = 0;
-						goto skip;
-					}
-				}
+				if (arg && strcmp(il2cpp_type_get_name(arg), args[i]) == 0) score++;
+				else { score = 0; goto skip; }
 			}
 		}
-		skip:
-		if (score == argsCount) {
-			__android_log_print(ANDROID_LOG_DEBUG, g_LogTag, "%s - [%s] %s::%s: %p", image, namespaze, clazz, name, *method);
-			return *method;
-		}
+skip:
+		if (score == argsCount) return *method;
+		score = 0;
 		method = (void **) il2cpp_class_get_methods(klass, &iter);
 	}
-	__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Cannot find function %s in class %s!", name, clazz);
 	return 0;
 }
 
 size_t Il2CppGetFieldOffset(const char *image, const char *namespaze, const char *clazz, const char *name) {
 	void *img = Il2CppGetImageByName(image);
-	if (!img) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find image %s!", image);
-		return -1;
-	}
+	if (!img) return (size_t)-1;
 	void *klass = Il2CppGetClassType(image, namespaze, clazz);
-	if (!klass) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find field %s!", name);
-		return -1;
-	}
+	if (!klass) return (size_t)-1;
 	void *field = il2cpp_class_get_field_from_name(klass, name);
-	if (!field) {
-		__android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find field %s in class %s!", clazz, name);
-		return -1;
-	}
-	auto result = il2cpp_field_get_offset(field);
-	__android_log_print(ANDROID_LOG_DEBUG, g_LogTag, "%s - [%s] %s::%s: %p", image, namespaze, clazz, name, (void *) result);
-	return result;
+	if (!field) return (size_t)-1;
+	return il2cpp_field_get_offset(field);
 }
 
 size_t Il2CppGetStaticFieldOffset(const char *image, const char *namespaze, const char *clazz, const char *name){
     void *img = Il2CppGetImageByName(image);
-    if(!img) {
-        __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find image %s!", image);
-        return -1;
-    }
+    if(!img) return (size_t)-1;
     void *klass = Il2CppGetClassType(image, namespaze, clazz);
-    if(!klass) {
-        __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find field %s!", name);
-        return -1;
-    }
-
+    if(!klass) return (size_t)-1;
     FieldInfo *field = (FieldInfo*)il2cpp_class_get_field_from_name(klass, name);
-    if(!field) {
-        __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Can't find field %s in class %s!", clazz, name);
-        return -1;
-    }
+    if(!field) return (size_t)-1;
     return (unsigned long)((uint64_t)field->parent->static_fields + field->offset);
 }
 
@@ -326,7 +225,7 @@ void Il2CppAttach(const char *name) {
     il2cpp_array_new = (void *(*)(void*, size_t)) xdl_sym(handle, "il2cpp_array_new",0);
     il2cpp_string_chars = (uint16_t *(*)(void*)) xdl_sym(handle, "il2cpp_string_chars",0);
     il2cpp_string_new = (Il2CppString *(*)(const char *)) xdl_sym(handle, "il2cpp_string_new",0);
-    il2cpp_string_new_utf16 = (Il2CppString *(*)(const wchar_t *, int32_t)) xdl_sym(handle, "il2cpp_string_new",0);
+    il2cpp_string_new_utf16 = (Il2CppString *(*)(const wchar_t *, int32_t)) xdl_sym(handle, "il2cpp_string_new_utf16",0);
     il2cpp_type_get_name = (char *(*)(void *)) xdl_sym(handle, "il2cpp_type_get_name",0);
     il2cpp_method_get_param = (void *(*)(void *, uint32_t)) xdl_sym(handle, "il2cpp_method_get_param",0);
     il2cpp_class_get_methods = (void *(*)(void *, void **)) xdl_sym(handle, "il2cpp_class_get_methods",0);
