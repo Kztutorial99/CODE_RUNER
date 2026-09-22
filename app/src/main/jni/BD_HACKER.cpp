@@ -264,15 +264,20 @@ bool showSpeedWidget = false;
 // Unity input hook only decodes/caches MotionEvent data; the render thread
 // drains the queue immediately before ImGui::NewFrame(). This avoids touching
 // the ImGui context concurrently from the Unity input thread.
-struct PendingTouchEvent {
+struct UnityTouchState {
     float x;
     float y;
     bool down;
+    bool pressed;
+    bool released;
+
+    UnityTouchState()
+        : x(0.0f), y(0.0f),
+          down(false), pressed(false), released(false) {}
 };
 
 static std::mutex g_UnityInputMutex;
-static std::deque<PendingTouchEvent> g_UnityInputQueue;
-static int g_UnityPrimaryPointerId = -1;
+static UnityTouchState g_UnityTouchState;
 
 static jclass g_MotionEventClass = nullptr;
 static jmethodID g_MotionEvent_getActionMasked = nullptr;
@@ -311,15 +316,13 @@ static bool InitMotionEventJNI(JNIEnv* env) {
            g_MotionEvent_findPointerIndex;
 }
 
-static void QueueUnityTouch(float x, float y, bool down) {
+static void UpdateUnityTouchState(float x, float y, bool down, bool pressed, bool released) {
     std::lock_guard<std::mutex> lock(g_UnityInputMutex);
-
-    // Keep the queue bounded. A long drag can generate many MOVE events,
-    // but only a small amount needs to survive until the next render frame.
-    if (g_UnityInputQueue.size() >= 128)
-        g_UnityInputQueue.pop_front();
-
-    g_UnityInputQueue.push_back({x, y, down});
+    g_UnityTouchState.x = x;
+    g_UnityTouchState.y = y;
+    g_UnityTouchState.down = down;
+    g_UnityTouchState.pressed = g_UnityTouchState.pressed || pressed;
+    g_UnityTouchState.released = g_UnityTouchState.released || released;
 }
 
 static void CaptureUnityMotionEvent(JNIEnv* env, jobject inputEvent) {
@@ -348,7 +351,8 @@ static void CaptureUnityMotionEvent(JNIEnv* env, jobject inputEvent) {
                 inputEvent, g_MotionEvent_getX, actionIndex);
             const float y = env->CallFloatMethod(
                 inputEvent, g_MotionEvent_getY, actionIndex);
-            QueueUnityTouch(x, y, true);
+
+            UpdateUnityTouchState(x, y, true, true, false);
             break;
         }
 
@@ -366,7 +370,8 @@ static void CaptureUnityMotionEvent(JNIEnv* env, jobject inputEvent) {
                 inputEvent, g_MotionEvent_getX, pointerIndex);
             const float y = env->CallFloatMethod(
                 inputEvent, g_MotionEvent_getY, pointerIndex);
-            QueueUnityTouch(x, y, true);
+
+            UpdateUnityTouchState(x, y, true, false, false);
             break;
         }
 
@@ -385,9 +390,9 @@ static void CaptureUnityMotionEvent(JNIEnv* env, jobject inputEvent) {
                     inputEvent, g_MotionEvent_getX, pointerIndex);
                 const float y = env->CallFloatMethod(
                     inputEvent, g_MotionEvent_getY, pointerIndex);
-                QueueUnityTouch(x, y, false);
+                UpdateUnityTouchState(x, y, false, false, true);
             } else {
-                QueueUnityTouch(0.0f, 0.0f, false);
+                UpdateUnityTouchState(0.0f, 0.0f, false, false, true);
             }
 
             g_UnityPrimaryPointerId = -1;
@@ -395,27 +400,41 @@ static void CaptureUnityMotionEvent(JNIEnv* env, jobject inputEvent) {
         }
 
         default:
-            // POINTER_DOWN/POINTER_UP are deliberately ignored here. ImGui
-            // only needs one primary pointer for this single-window menu.
             break;
     }
 }
 
-static void DrainUnityInputQueue() {
-    std::deque<PendingTouchEvent> pending;
+static void DrainUnityInputState() {
+    UnityTouchState state;
     {
         std::lock_guard<std::mutex> lock(g_UnityInputMutex);
-        pending.swap(g_UnityInputQueue);
-    }
+        state = g_UnityTouchState;
 
-    if (pending.empty())
-        return;
+        // Deliver a press for at least one render frame. This prevents a fast
+        // DOWN+UP pair from being collapsed before ImGui::NewFrame().
+        if (g_UnityTouchState.pressed)
+            g_UnityTouchState.pressed = false;
+
+        // Deliver the release on a subsequent frame when both transitions
+        // arrived before the next render tick.
+        if (!state.pressed && g_UnityTouchState.released)
+            g_UnityTouchState.released = false;
+    }
 
     ImGuiIO& io = ImGui::GetIO();
-    for (const PendingTouchEvent& event : pending) {
-        io.AddMousePosEvent(event.x, event.y);
-        io.AddMouseButtonEvent(0, event.down);
+    io.AddMousePosEvent(state.x, state.y);
+
+    if (state.pressed) {
+        io.AddMouseButtonEvent(0, true);
+        return;
     }
+
+    if (state.released) {
+        io.AddMouseButtonEvent(0, false);
+        return;
+    }
+
+    io.AddMouseButtonEvent(0, state.down);
 }
 
 using UnityNativeInjectEvent1 = jboolean (*)(JNIEnv*, jobject, jobject);
@@ -501,7 +520,7 @@ inline EGLBoolean hook_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplAndroid_NewFrame(g_GlWidth, g_GlHeight);
-    DrainUnityInputQueue();
+    DrainUnityInputState();
     ImGui::NewFrame();
 
     ProjectMenu::Render();
