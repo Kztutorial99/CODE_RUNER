@@ -27,7 +27,7 @@
 #include <ADITYA MODS/main.h>
 #include "menu/Menu.hpp"
 #include "fonts/FontAwesome6_solid.h"
-#include "ImGui/Toggle.h"
+#include "Toggle.h"
 
 #define ICON_FA_CROSSHAIRS "\xef\x81\x9b"
 #define ICON_FA_EYE "\xef\x81\xae"
