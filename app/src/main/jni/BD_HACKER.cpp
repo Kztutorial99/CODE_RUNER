@@ -278,6 +278,7 @@ struct UnityTouchState {
 
 static std::mutex g_UnityInputMutex;
 static UnityTouchState g_UnityTouchState;
+static int g_UnityPrimaryPointerId = -1;
 
 static jclass g_MotionEventClass = nullptr;
 static jmethodID g_MotionEvent_getActionMasked = nullptr;
