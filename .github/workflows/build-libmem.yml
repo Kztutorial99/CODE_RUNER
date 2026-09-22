@@ -11,11 +11,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+
       - name: Install Android NDK
-        run: sdkmanager "ndk;25.2.9519653"
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;25.2.9519653"
+          test -x "$ANDROID_SDK_ROOT/ndk/25.2.9519653/ndk-build"
+
       - name: Build native library
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
           export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/25.2.9519653"
           "$ANDROID_NDK_HOME/ndk-build" \
@@ -23,17 +30,20 @@ jobs:
             APP_BUILD_SCRIPT="$GITHUB_WORKSPACE/app/src/main/jni/Android.mk" \
             NDK_APPLICATION_MK="$GITHUB_WORKSPACE/app/src/main/jni/Application.mk" \
             NDK_LIBS_OUT="$GITHUB_WORKSPACE/dist" V=1
+
       - name: Verify outputs
         run: |
           test -f dist/arm64-v8a/libmem.so
           test -f dist/armeabi-v7a/libmem.so
           file dist/arm64-v8a/libmem.so
           file dist/armeabi-v7a/libmem.so
+
       - name: Package .so only
         run: |
           mkdir -p release
           cp dist/arm64-v8a/libmem.so release/libmem-arm64-v8a.so
           cp dist/armeabi-v7a/libmem.so release/libmem-armeabi-v7a.so
+
       - name: Upload .so artifacts
         uses: actions/upload-artifact@v4
         with:
