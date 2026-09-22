@@ -34,7 +34,6 @@ FILE_LIST               := $(wildcard $(LOCAL_PATH)/imgui/*.c*)
 FILE_LIST              += $(wildcard $(LOCAL_PATH)/xdl/*.c*)
 FILE_LIST              += $(wildcard $(LOCAL_PATH)/KittyMemory/*.c*)
 FILE_LIST              += $(wildcard $(LOCAL_PATH)/CROSS/IL2CppSDKGenerator/*.c*)
-FILE_LIST              += $(wildcard $(LOCAL_PATH)/menu/*.c*)
 FILE_LIST              += $(wildcard $(LOCAL_PATH)/menu/*.cpp)
 FILE_LIST              += $(wildcard $(LOCAL_PATH)/*.c*)
 
