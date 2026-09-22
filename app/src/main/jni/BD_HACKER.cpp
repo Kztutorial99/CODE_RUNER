@@ -25,6 +25,7 @@
 #include <CydiaSubstrate.h>
 #include "ADITYA MODS/Gui.hpp"
 #include <ADITYA MODS/main.h>
+#include "menu/Menu.hpp"
 #include "fonts/FontAwesome6_solid.h"
 #include "ImGui/Toggle.h"
 
@@ -217,8 +218,7 @@ bool YADAVJEE(const char* label, bool* v) {
     return *v;
 }
 
-// ==========================================
-// 🗂️ NEW NAVIGATION TAB BUTTON
+// ==========================================// 🗂️ NEW NAVIGATION TAB BUTTON
 // ==========================================
 static bool LeftNavButton(const char* label, const char* icon, bool selected, ImVec2 size = ImVec2(0, 55)) {
     if (size.x <= 0) size.x = ImGui::GetContentRegionAvail().x;
@@ -250,123 +250,23 @@ void *getRealAddr(ulong offset) {
 bool showSpeedWidget = false;
 
 inline EGLBoolean (*old_eglSwapBuffers)(EGLDisplay dpy, EGLSurface surface);
+
 inline EGLBoolean hook_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
     eglQuerySurface(dpy, surface, EGL_WIDTH, &g_GlWidth);
     eglQuerySurface(dpy, surface, EGL_HEIGHT, &g_GlHeight);
+
     if (!g_IsSetup) {
         prevWidth = g_GlWidth;
         prevHeight = g_GlHeight;
         SetupImgui();
         g_IsSetup = true;
     }
-    
-    static bool isTouching = false;
-    static float touchStartTime = 0.0f;
-    
-    SetModernPremiumTheme();
-    ImGuiIO& io = ImGui::GetIO(); 
+
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplAndroid_NewFrame(g_GlWidth, g_GlHeight);
     ImGui::NewFrame();
-    
-    if (Class_Input__get_touchCount && Class_Input__GetTouch) {
-        int touchCount = ((int (*)())(Class_Input__get_touchCount))();
-        if (touchCount > 0) {
-            UnityEngine_Touch_Fields touch = ((UnityEngine_Touch_Fields(*)(int))(Class_Input__GetTouch))(0);
-            float reverseY = io.DisplaySize.y - touch.m_Position.fields.y;
-            io.MousePos = ImVec2(touch.m_Position.fields.x, reverseY);
-            if (!isTouching) {
-                touchStartTime = ImGui::GetTime();
-            }
-            io.MouseDown[0] = true;
-            isTouching = true;
-        } else {
-            if (isTouching && (ImGui::GetTime() - touchStartTime < 0.06f)) {
-                io.MouseDown[0] = true;
-            } else {
-                UpdateSpeedhack();
-                io.MouseDown[0] = false;
-                isTouching = false;
-            }  
-        }
-    }
 
-    DrawESP(g_GlWidth, g_GlHeight);
-    
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();    
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_FirstUseEver);  
-    if (ImGui::Begin(menuTitles[titleIndex], nullptr, 
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_AlwaysAutoResize)) {
-        
-        if (ImGui::BeginTabBar("##Main tabs", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
-            
-            if (ImGui::BeginTabItem("Aim menu")) {
-                ImGui::Separator();
-                ImGui::Text("Aim setting");
-                ImGui::Separator();
-                ImGui::Checkbox("Active Functions", &Enable);       
-                ImGui::Checkbox("Aimbot Rage", &Aimbot);
-                ImGui::Checkbox("Aimbot Legit", &BotCheck);             
-                ImGui::Separator();   
-                ImGui::Text("Aim Fov");            
-                ImGui::SliderFloat("##Aim Fov", &Fov_Aim, 00.0f, 700.0f, "%.f");  
-                ImGui::Text("Aimbot HG");
-                ImGui::SliderFloat("##Aim Distance", &Aimdis, 00.0f, 250.0f, "%.f");
-                
-                ImGui::EndTabItem();
-            }
-
-            if (ImGui::BeginTabItem("Esp menu")) {
-                ImGui::Text("Esp setting");
-                ImGui::Separator();                
-                ImGui::Checkbox("Esp Line", &Config.ESP.Line);	   
-                ImGui::Checkbox("Esp box", &Config.ESP.Box);
-                ImGui::Checkbox("Eap Health", &Config.ESP.Health);
-                                
-                                
-                ImGui::EndTabItem();
-            }
-            
-            // ================= MOD SKIN TAB =================
-            if (ImGui::BeginTabItem("Memory")) {
-                ImGui::Separator();
-                ImGui::Text("Memory menu");
-                ImGui::Separator();
-                ImGui::Checkbox("login India", &Setindia);
-                ImGui::Checkbox("Auto Run", &AutoRun);
-                ImGui::Checkbox("Infinite Range", &InfiniteRange);
-                ImGui::Checkbox("Sniper Fast", &SniperFast);
-                ImGui::Checkbox("Camxa hack", &camxa);                
-                
-                ImGui::EndTabItem();
-            }
-            
-            // ================= INFO TAB =================
-            if (ImGui::BeginTabItem("Account")) {
-                ImGui::Separator();
-                ImGui::Checkbox("Guest Reset", &Guest);
-                ImGui::Checkbox("Show Speed [x70]", &showSpeedWidget);
-                
-                ImGui::Separator();
-                if (ImGui::Button(" join Telegram", ImVec2(-1, 0))) {
-                    OpenURL(Il2CppString::Create(OBFUSCATE("https://t.me/+d5YsrSRhie0yZWZl")));
-                }
-                if (ImGui::Button(" Subscribe Youtube", ImVec2(-1, 0))) {
-                    OpenURL(Il2CppString::Create(OBFUSCATE("https://www.youtube.com/@BD_HACKER_YT_OFC")));
-                }
-                
-                ImGui::EndTabItem();
-            }
-
-            ImGui::EndTabBar();
-        }
-        ImGui::End();
-    }
-
-
-    ImGui::EndChild();
-    ImGui::End();
+    ProjectMenu::Render();
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -427,8 +327,7 @@ void hack_thread() {
 //CREDIT CROSS MODS
 //CREDIT CROSS MODS
 //CREDIT CROSS MODS
-//CREDIT CROSS MODS
-//CREDIT CROSS MODS
+//CREDIT CROSS MODS//CREDIT CROSS MODS
 //CREDIT CROSS MODS
 //CREDIT CROSS MODS
 //CREDIT CROSS MODS
