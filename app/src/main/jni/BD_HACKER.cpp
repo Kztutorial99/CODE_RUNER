@@ -27,6 +27,7 @@
 #include "ADITYA MODS/Gui.hpp"
 #include <ADITYA MODS/main.h>
 #include "menu/Menu.hpp"
+#include "menu/Theme.hpp"
 #include "fonts/FontAwesome6_solid.h"
 #include "Toggle.h"
 
