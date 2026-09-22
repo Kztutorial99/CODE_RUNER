@@ -14,6 +14,9 @@
 //CREDIT CROSS MODS
 #include <android/log.h>
 #include <android/input.h>
+#include <jni.h>
+#include <deque>
+#include <mutex>
 #include <unistd.h>
 #include <thread>
 #include <limits>
@@ -21,6 +24,7 @@
 #include <xdl.h>
 #include <KittyUtils.h>
 #include <KittyMemory.h>
+#include <KittyScanner.h>
 #include <Il2Cpp.h>
 #include <SubstrateHook.h>
 #include <CydiaSubstrate.h>
@@ -251,28 +255,228 @@ void *getRealAddr(ulong offset) {
 
 bool showSpeedWidget = false;
 
-using AInputQueueGetEventFn = int32_t (*)(AInputQueue*, AInputEvent**);
-inline AInputQueueGetEventFn orig_AInputQueue_getEvent = nullptr;
+// Unity's Android Java layer delivers MotionEvent objects to libunity through
+// the registered native method "nativeInjectEvent". The Dear ImGui Android
+// backend expects the input to be delivered to the ImGui context, but this
+// project renders ImGui from eglSwapBuffers (render thread). Therefore the
+// Unity input hook only decodes/caches MotionEvent data; the render thread
+// drains the queue immediately before ImGui::NewFrame(). This avoids touching
+// the ImGui context concurrently from the Unity input thread.
+struct PendingTouchEvent {
+    float x;
+    float y;
+    bool down;
+};
 
-inline int32_t hook_AInputQueue_getEvent(AInputQueue* queue, AInputEvent** outEvent) {
-    int32_t result = orig_AInputQueue_getEvent(queue, outEvent);
-    if (result >= 0 && outEvent && *outEvent && g_IsSetup) {
-        ImGui_ImplAndroid_HandleInputEvent(*outEvent);
+static std::mutex g_UnityInputMutex;
+static std::deque<PendingTouchEvent> g_UnityInputQueue;
+static int g_UnityPrimaryPointerId = -1;
+
+static jclass g_MotionEventClass = nullptr;
+static jmethodID g_MotionEvent_getActionMasked = nullptr;
+static jmethodID g_MotionEvent_getActionIndex = nullptr;
+static jmethodID g_MotionEvent_getX = nullptr;
+static jmethodID g_MotionEvent_getY = nullptr;
+static jmethodID g_MotionEvent_getPointerId = nullptr;
+static jmethodID g_MotionEvent_findPointerIndex = nullptr;
+static std::once_flag g_MotionEventInitOnce;
+
+static bool InitMotionEventJNI(JNIEnv* env) {
+    std::call_once(g_MotionEventInitOnce, [env]() {
+        jclass localClass = env->FindClass("android/view/MotionEvent");
+        if (!localClass) return;
+
+        g_MotionEventClass = reinterpret_cast<jclass>(env->NewGlobalRef(localClass));
+        env->DeleteLocalRef(localClass);
+
+        if (!g_MotionEventClass) return;
+
+        g_MotionEvent_getActionMasked = env->GetMethodID(g_MotionEventClass, "getActionMasked", "()I");
+        g_MotionEvent_getActionIndex = env->GetMethodID(g_MotionEventClass, "getActionIndex", "()I");
+        g_MotionEvent_getX = env->GetMethodID(g_MotionEventClass, "getX", "(I)F");
+        g_MotionEvent_getY = env->GetMethodID(g_MotionEventClass, "getY", "(I)F");
+        g_MotionEvent_getPointerId = env->GetMethodID(g_MotionEventClass, "getPointerId", "(I)I");
+        g_MotionEvent_findPointerIndex = env->GetMethodID(g_MotionEventClass, "findPointerIndex", "(I)I");
+    });
+
+    return g_MotionEventClass &&
+           g_MotionEvent_getActionMasked &&
+           g_MotionEvent_getActionIndex &&
+           g_MotionEvent_getX &&
+           g_MotionEvent_getY &&
+           g_MotionEvent_getPointerId &&
+           g_MotionEvent_findPointerIndex;
+}
+
+static void QueueUnityTouch(float x, float y, bool down) {
+    std::lock_guard<std::mutex> lock(g_UnityInputMutex);
+
+    // Keep the queue bounded. A long drag can generate many MOVE events,
+    // but only a small amount needs to survive until the next render frame.
+    if (g_UnityInputQueue.size() >= 128)
+        g_UnityInputQueue.pop_front();
+
+    g_UnityInputQueue.push_back({x, y, down});
+}
+
+static void CaptureUnityMotionEvent(JNIEnv* env, jobject inputEvent) {
+    if (!env || !inputEvent || !g_IsSetup)
+        return;
+
+    if (!InitMotionEventJNI(env))
+        return;
+
+    if (!env->IsInstanceOf(inputEvent, g_MotionEventClass))
+        return;
+
+    const jint action = env->CallIntMethod(inputEvent, g_MotionEvent_getActionMasked);
+    const jint actionIndex = env->CallIntMethod(inputEvent, g_MotionEvent_getActionIndex);
+
+    switch (action) {
+        case 0: { // MotionEvent.ACTION_DOWN
+            const jint pointerId = env->CallIntMethod(
+                inputEvent, g_MotionEvent_getPointerId, actionIndex);
+            g_UnityPrimaryPointerId = pointerId;
+
+            const float x = env->CallFloatMethod(
+                inputEvent, g_MotionEvent_getX, actionIndex);
+            const float y = env->CallFloatMethod(
+                inputEvent, g_MotionEvent_getY, actionIndex);
+            QueueUnityTouch(x, y, true);
+            break;
+        }
+
+        case 2: { // MotionEvent.ACTION_MOVE
+            if (g_UnityPrimaryPointerId < 0)
+                break;
+
+            const jint pointerIndex = env->CallIntMethod(
+                inputEvent, g_MotionEvent_findPointerIndex,
+                g_UnityPrimaryPointerId);
+            if (pointerIndex < 0)
+                break;
+
+            const float x = env->CallFloatMethod(
+                inputEvent, g_MotionEvent_getX, pointerIndex);
+            const float y = env->CallFloatMethod(
+                inputEvent, g_MotionEvent_getY, pointerIndex);
+            QueueUnityTouch(x, y, true);
+            break;
+        }
+
+        case 1: // MotionEvent.ACTION_UP
+        case 3: { // MotionEvent.ACTION_CANCEL
+            if (g_UnityPrimaryPointerId < 0)
+                break;
+
+            const jint pointerIndex = (action == 1)
+                ? actionIndex
+                : env->CallIntMethod(inputEvent, g_MotionEvent_findPointerIndex,
+                                     g_UnityPrimaryPointerId);
+
+            if (pointerIndex >= 0) {
+                const float x = env->CallFloatMethod(
+                    inputEvent, g_MotionEvent_getX, pointerIndex);
+                const float y = env->CallFloatMethod(
+                    inputEvent, g_MotionEvent_getY, pointerIndex);
+                QueueUnityTouch(x, y, false);
+            } else {
+                QueueUnityTouch(0.0f, 0.0f, false);
+            }
+
+            g_UnityPrimaryPointerId = -1;
+            break;
+        }
+
+        default:
+            // POINTER_DOWN/POINTER_UP are deliberately ignored here. ImGui
+            // only needs one primary pointer for this single-window menu.
+            break;
     }
+}
+
+static void DrainUnityInputQueue() {
+    std::deque<PendingTouchEvent> pending;
+    {
+        std::lock_guard<std::mutex> lock(g_UnityInputMutex);
+        pending.swap(g_UnityInputQueue);
+    }
+
+    if (pending.empty())
+        return;
+
+    ImGuiIO& io = ImGui::GetIO();
+    for (const PendingTouchEvent& event : pending) {
+        io.AddMousePosEvent(event.x, event.y);
+        io.AddMouseButtonEvent(0, event.down);
+    }
+}
+
+using UnityNativeInjectEvent1 = jboolean (*)(JNIEnv*, jobject, jobject);
+using UnityNativeInjectEvent2 = jboolean (*)(JNIEnv*, jobject, jobject, jint);
+
+static UnityNativeInjectEvent1 orig_UnityNativeInjectEvent1 = nullptr;
+static UnityNativeInjectEvent2 orig_UnityNativeInjectEvent2 = nullptr;
+
+static jboolean HookUnityNativeInjectEvent1(
+    JNIEnv* env, jobject thiz, jobject inputEvent) {
+    const jboolean result = orig_UnityNativeInjectEvent1
+        ? orig_UnityNativeInjectEvent1(env, thiz, inputEvent)
+        : JNI_FALSE;
+
+    CaptureUnityMotionEvent(env, inputEvent);
     return result;
 }
 
-inline void StartInputHook() {
-    void* target = DobbySymbolResolver("libandroid.so", "AInputQueue_getEvent");
-    if (!target) target = DobbySymbolResolver("/system/lib64/libandroid.so", "AInputQueue_getEvent");
-    if (!target) target = DobbySymbolResolver("/system/lib/libandroid.so", "AInputQueue_getEvent");
-    if (target) {
-        DobbyHook(target, (void*)hook_AInputQueue_getEvent,
-                  (void**)&orig_AInputQueue_getEvent);
-        LOGD("Android input hook installed");
-    } else {
-        LOGD("Android input hook target not found");
+static jboolean HookUnityNativeInjectEvent2(
+    JNIEnv* env, jobject thiz, jobject inputEvent, jint extra) {
+    const jboolean result = orig_UnityNativeInjectEvent2
+        ? orig_UnityNativeInjectEvent2(env, thiz, inputEvent, extra)
+        : JNI_FALSE;
+
+    CaptureUnityMotionEvent(env, inputEvent);
+    return result;
+}
+
+static bool StartUnityInputHook() {
+    const auto maps = KittyMemory::getMapsByName("libunity.so");
+    if (maps.empty()) {
+        LOGD("Unity input: libunity.so maps not found");
+        return false;
     }
+
+    KittyScanner::RegisterNativeFn nativeInjectEvent =
+        KittyScanner::findRegisterNativeFn(
+            maps, "nativeInjectEvent");
+
+    if (!nativeInjectEvent.isValid()) {
+        LOGD("Unity input: nativeInjectEvent registration not found");
+        return false;
+    }
+
+    LOGD("Unity input: nativeInjectEvent signature=%s fn=%p",
+         nativeInjectEvent.signature, nativeInjectEvent.fnPtr);
+
+    if (std::strcmp(nativeInjectEvent.signature,
+                    "(Landroid/view/InputEvent;)Z") == 0) {
+        if (DobbyHook(nativeInjectEvent.fnPtr,
+                      (void*)HookUnityNativeInjectEvent1,
+                      (void**)&orig_UnityNativeInjectEvent1) == 0) {
+            LOGD("Unity input hook installed (1-arg)");
+            return true;
+        }
+    } else if (std::strcmp(nativeInjectEvent.signature,
+                           "(Landroid/view/InputEvent;I)Z") == 0) {
+        if (DobbyHook(nativeInjectEvent.fnPtr,
+                      (void*)HookUnityNativeInjectEvent2,
+                      (void**)&orig_UnityNativeInjectEvent2) == 0) {
+            LOGD("Unity input hook installed (2-arg)");
+            return true;
+        }
+    }
+
+    LOGD("Unity input: unsupported nativeInjectEvent signature");
+    return false;
 }
 
 inline EGLBoolean (*old_eglSwapBuffers)(EGLDisplay dpy, EGLSurface surface);
@@ -291,6 +495,7 @@ inline EGLBoolean hook_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplAndroid_NewFrame(g_GlWidth, g_GlHeight);
+    DrainUnityInputQueue();
     ImGui::NewFrame();
 
     ProjectMenu::Render();
@@ -338,7 +543,7 @@ void hack_thread() {
     void* m5 = (void*)Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE("COW.GamePlay"), OBFUSCATE("UGCLevelPointLight"), OBFUSCATE("get_Range"), 0);
     if(m5) DobbyHook(m5, (void*)hook_get_Range, (void**)&orig_get_Range);
 
-    StartInputHook();
+    StartUnityInputHook();
     StartGUI();
 }
 
