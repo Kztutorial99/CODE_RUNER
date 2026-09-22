@@ -17,6 +17,7 @@
 #include <jni.h>
 #include <deque>
 #include <mutex>
+#include <cstring>
 #include <unistd.h>
 #include <thread>
 #include <limits>
