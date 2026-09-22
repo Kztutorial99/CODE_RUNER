@@ -1,6 +1,6 @@
 #include <map>
 #include <jni.h>
-#include "dobby/dobby.h"
+#include "dobby.h"
 
 namespace Tools {
     void Hook(void *target, void *replace, void **backup);
@@ -15,15 +15,15 @@ namespace Tools {
     bool IsPtrValid(void *addr);
 
     uintptr_t GetBaseAddress(const char *name);
-	uintptr_t GetRealOffsets(const char *libraryName, uintptr_t relativeAddr);
+    uintptr_t GetRealOffsets(const char *libraryName, uintptr_t relativeAddr);
     uintptr_t GetEndAddress(const char *name);
     uintptr_t FindPattern(const char *lib, const char* pattern);
 
     std::string RandomString(const int len);
     std::string GetPackageName(JNIEnv *env, jobject context);
-	const char *GetAndroidID(JNIEnv *env, jobject context);
-	const char *GetDeviceModel(JNIEnv *env);
-	const char *GetDeviceBrand(JNIEnv *env);
-	const char *GetDeviceUniqueIdentifier(JNIEnv *env, const char *uuid);
-	std::string CalcMD5(std::string s);
+    const char *GetAndroidID(JNIEnv *env, jobject context);
+    const char *GetDeviceModel(JNIEnv *env);
+    const char *GetDeviceBrand(JNIEnv *env);
+    const char *GetDeviceUniqueIdentifier(JNIEnv *env, const char *uuid);
+    std::string CalcMD5(std::string s);
 }
