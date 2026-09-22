@@ -150,13 +150,18 @@ namespace KittyScanner
 
         KITTY_LOGI("string (%s) at %p", name.c_str(), (void*)string_loc);
 
+        // JNI registration tables are commonly placed in RELRO/.data.rel.ro,
+        // which may be mapped read-only (r--p) rather than writable (rw-p).
+        // Search all readable, non-executable mappings instead of only rw-p.
         for (auto &it : maps) {
-            if (it.is_rw) {
-                string_xref = KittyScanner::findDataFirst(it.startAddress, it.endAddress, &string_loc, sizeof(uintptr_t));
+            if (it.readable && !it.executable) {
+                string_xref = KittyScanner::findDataFirst(
+                    it.startAddress, it.endAddress, &string_loc, sizeof(uintptr_t));
                 if (!string_xref) continue;
 
-                KITTY_LOGI("string at (%p) referenced at %p", (void *)string_loc, (void *)string_xref);
-                
+                KITTY_LOGI("string at (%p) referenced at %p",
+                           (void *)string_loc, (void *)string_xref);
+
                 fn_loc = string_xref;
                 break;
             }
