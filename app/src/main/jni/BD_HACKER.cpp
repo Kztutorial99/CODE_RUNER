@@ -17,6 +17,7 @@
 #include <jni.h>
 #include <deque>
 #include <mutex>
+#include <atomic>
 #include <cstring>
 #include <unistd.h>
 #include <thread>
@@ -281,6 +282,7 @@ static jmethodID g_MotionEvent_getY = nullptr;
 static jmethodID g_MotionEvent_getPointerId = nullptr;
 static jmethodID g_MotionEvent_findPointerIndex = nullptr;
 static std::once_flag g_MotionEventInitOnce;
+static std::atomic<bool> g_UnityMotionEventSeen{false};
 
 static bool InitMotionEventJNI(JNIEnv* env) {
     std::call_once(g_MotionEventInitOnce, [env]() {
@@ -329,6 +331,9 @@ static void CaptureUnityMotionEvent(JNIEnv* env, jobject inputEvent) {
 
     if (!env->IsInstanceOf(inputEvent, g_MotionEventClass))
         return;
+
+    if (!g_UnityMotionEventSeen.exchange(true))
+        LOGD("Unity input: MotionEvent stream detected");
 
     const jint action = env->CallIntMethod(inputEvent, g_MotionEvent_getActionMasked);
     const jint actionIndex = env->CallIntMethod(inputEvent, g_MotionEvent_getActionIndex);
